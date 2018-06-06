@@ -17,56 +17,58 @@ if __name__ == '__main__':
     # Get arguements
     args = sys.argv[:]
     
+    # Checkpoint save directory '--save_dir' arguement, else working directory
     if "--save_dir" in args:
         save_dir = args[args.index("--save_dir") + 1]
     else:
         save_dir = False
-        
+    
+    # Model architecture '--arch' arguement, else densenet121 model
     if "--arch" in args:
         arch = args[args.index("--arch") + 1].lower()
                     
-        if arch == 'alexnet': model = models.alexnet(pretrained=True)
-        elif arch == 'vgg11': model = models.vgg11(pretrained=True)
-        elif arch == 'vgg13': model = models.vgg13(pretrained=True)
-        elif arch == 'vgg16': model = models.vgg16(pretrained=True)
-        elif arch == 'vgg19': model = models.vgg19(pretrained=True)
-        elif arch == 'vgg11bn': model = models.vgg11_bn(pretrained=True)
-        elif arch == 'vgg13bn': model = models.vgg13_bn(pretrained=True)
-        elif arch == 'vgg16bn': model = models.vgg16_bn(pretrained=True)
-        elif arch == 'vgg19bn': model = models.vgg19_bn(pretrained=True)
-        elif arch == 'resnet18': model = models.resnet18(pretrained=True)
-        elif arch == 'resnet34': model = models.resnet34(pretrained=True)
-        elif arch == 'resnet50': model = models.resnet50(pretrained=True)
-        elif arch == 'resnet101':	model = models.resnet101(pretrained=True)
-        elif arch == 'resnet152':	model = models.resnet152(pretrained=True)
-        elif arch == 'squeezenet': model = models.squeezenet1_0(pretrained=True)
-        elif arch == 'queezenet': model = models.squeezenet1_1(pretrained=True)
-        elif arch == 'densenet121': model = models.densenet121(pretrained=True)
-        elif arch == 'densenet169': model = models.densenet169(pretrained=True)
-        elif arch == 'densenet201': model = models.densenet201(pretrained=True)
-        elif arch == 'densenet161': model = models.densenet161(pretrained=True)
-        elif arch == 'inception':	model = models.inception_v3(pretrained=True)
+        if arch == 'alexnet': 
+            model = models.alexnet(pretrained=True)
+            input_size = 9216
+        elif arch == 'vgg16': 
+            model = models.vgg16(pretrained=True)
+            input_size = 25088
+        elif arch == 'densenet121': 
+            model = models.densenet121(pretrained=True)
+            input_size = 1024
         else: 
-            print('Model not recongized')
+            print('Model not recongized.')
             sys.exit()
     else:
+        arch = 'densenet121'
         model = models.densenet121(pretrained=True)
-        
+        input_size = 1024
+
+    # Model learning rate '--learning_rate' arguement, else 0.001        
     if "--learning_rate" in args:
         learning_rate = args[args.index("--learning_rate") + 1]
     else:
         learning_rate = 0.001
         
+    # Network hidden layers '--hidden_units' arguement, else [490]
     if "--hidden_units" in args:
         hidden_layers = args[args.index("--hidden_units") + 1]
+        hidden_layers = hidden_layers.split(',')
+        hidden_layers = [int(layer) for layer in hidden_layers]
     else:
-        hidden_layers = 490
-        
+        hidden_layers = [490]
+    
+    # Create network with hidden layers applied
+    output_size = 102   
+    hidden_layers.append(output_size)
+
+    # Number of training epochs '--epochs' arguement, else 3
     if "--epochs" in args:
         epochs = args[args.index("--epochs") + 1]
     else:
         epochs = 3
         
+    # If '--gpu' is passed, enabled Nvida Cuda features for PyTorch
     if "--gpu" in args:
         gpu = True
     else:
@@ -77,7 +79,7 @@ if __name__ == '__main__':
     train_dir = data_dir + "/train"
     valid_dir = data_dir + "/valid"
     
-    # TODO: Define your transforms for the training, validation, and testing sets
+    # Define your transforms for the training, validation, and testing sets
     data_transforms = transforms.Compose([transforms.RandomRotation(30),
                                       transforms.RandomResizedCrop(224),
                                       transforms.RandomHorizontalFlip(),
@@ -90,14 +92,14 @@ if __name__ == '__main__':
                                           transforms.Normalize([0.485, 0.456, 0.406], 
                                                                [0.229, 0.224, 0.225])])
     
-    # TODO: Load the datasets with ImageFolder
+    # Load the datasets with ImageFolder
     train_datasets = datasets.ImageFolder(train_dir,
                                           transform=data_transforms)
     
     valid_datasets = datasets.ImageFolder(valid_dir,
                                           transform=new_data_transforms)
     
-    # TODO: Using the image datasets and the trainforms, define the dataloaders
+    # Using the image datasets and the trainforms, define the dataloaders
     train_loaders = DataLoader(train_datasets,
                                batch_size=32,
                                shuffle=True)
@@ -106,17 +108,33 @@ if __name__ == '__main__':
                                batch_size=32,
                                shuffle=True)
     
-    # TODO: Build and train your network
-    # Classifier params
-    params = OrderedDict([('fc1', nn.Linear(1024, hidden_layers)),
-                          ('relu', nn.ReLU()), 
-                          ('fc2', nn.Linear(hidden_layers, int(hidden_layers/5))),
-                          ('drop', nn.Dropout(p=0.33)),
-                          ('output', nn.LogSoftmax(dim=1))])
+    class_idx = train_datasets.class_to_idx
+    
+    # Build and train your network
+    nn_layers = nn.ModuleList([nn.Linear(input_size, hidden_layers[0])])
+    nn_hidden = zip(hidden_layers[:-1], hidden_layers[1:])
+    nn_layers.extend([nn.Linear(x, y) for x, y in nn_hidden])
+    
     # Feature parameters
     for x in model.parameters():
         x.requires_grad = False
+        
+    # Classifier params
+    params = OrderedDict()
+    dropout = 0.33
     
+    for i in range(len(nn_layers)):
+        if i == 0:
+            params.update({'drop{}'.format(i+1):nn.Dropout(p=dropout)})
+            params.update({'fc{}'.format(i+1):nn_layers[i]})
+        else:
+            params.update({'relu{}'.format(i+1):nn.ReLU()})
+            params.update({'drop{}'.format(i+1):nn.Dropout(p=dropout)})
+            params.update({'fc{}'.format(i+1): nn_layers[i]})
+            
+    params.update({'output': nn.LogSoftmax(dim=1)})
+    
+    # Start classifier
     model.classifier = nn.Sequential(params)
     
     # CUDA, GPU if available else CPU
@@ -140,15 +158,12 @@ if __name__ == '__main__':
         for images, labels in iter(train_loaders):
             steps += 1
             optimizer.zero_grad()
-    
-            # Flatten image
-            #images.resize_(images.size()[0], 50176)
             
             inputs = Variable(images)
             train_labels = Variable(labels)
             
             # CUDA, convert to CUDA objects if available
-            if torch.cuda.is_available():
+            if gpu:
                 inputs = inputs.cuda()
                 train_labels = train_labels.cuda()
             
@@ -172,9 +187,11 @@ if __name__ == '__main__':
                     inputs = Variable(images, volatile=True)
                     valid_labels = Variable(labels, volatile=True)
                     
+                    # Calculate loss
                     output = model.forward(inputs)
                     valid_loss += criterion(output, labels).data[0]
                     
+                    # Calculate accuracy
                     ps = torch.exp(output).data
                     equality = (labels.data == ps.max(1)[1])
                     accuracy += equality.type_as(torch.FloatTensor()).mean()
@@ -186,14 +203,22 @@ if __name__ == '__main__':
                 r_loss = 0.0
                 model.train()
                 
-    # TODO: Save the checkpoint
+    # Save the checkpoint
     if save_dir: 
-        check_point_path = save_dir + '\checkpoint.pth'
+        check_point_path = save_dir + '/checkpoint_term.pth'
     else: 
-        check_point_path = 'checkpoint.pth'
+        check_point_path = 'checkpoint_term.pth'
+    
+    # Select model checkpoint parameters to include in file
+    checkpoint = {'input_size': input_size,
+                  'output_size': output_size,
+                  'epochs': epochs,
+                  'arch': arch,
+                  'hidden_units': [each.out_features for each in model.classifier if hasattr(each, 'out_features') == True],
+                  'learning_rate': learning_rate,
+                  'class_to_idx': class_idx,
+                  'optimizer_dict': optimizer.state_dict(),
+                  'classifier': model.classifier,
+                  'state_dict': model.state_dict()}
 
-    torch.save(model.state_dict(), check_point_path)
-    model.class_to_idx = train_datasets.class_to_idx
-    
-    
-                
+    torch.save(checkpoint, check_point_path)
