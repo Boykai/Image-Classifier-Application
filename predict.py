@@ -73,7 +73,7 @@ def predict(img, model, gpu, topk=5):
     if gpu:
         model.cuda()
         img = img.cuda()
-    
+        
     # Process image into inputs and run through model
     outputs = model.forward(Variable(img.unsqueeze(0), volatile=True))
     
@@ -114,11 +114,17 @@ if __name__ == '__main__':
         category_dict = json.load(f)    
         
     # If '--gpu' is passed, enabled Nvida Cuda features for PyTorch
-    if "--gpu" in args:
+    if "--gpu" in args and torch.cuda.is_available():
         gpu = True
+        print('\nRunning GPU...')  
+    elif "--gpu" in args and not torch.cuda.is_available():
+        gpu = False
+        print('\nError: Cuda not available but --gpu was set.')
+        print('Running CPU...\n')
     else:
         gpu = False
-    
+        print('\nRunning CPU...\n')
+        
     # Load model
     model = load_checkpoint(check_point_path)
     

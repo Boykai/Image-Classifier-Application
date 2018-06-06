@@ -69,10 +69,16 @@ if __name__ == '__main__':
         epochs = 3
         
     # If '--gpu' is passed, enabled Nvida Cuda features for PyTorch
-    if "--gpu" in args:
+    if "--gpu" in args and torch.cuda.is_available():
         gpu = True
+        print('\nRunning GPU...\n')  
+    elif "--gpu" in args and not torch.cuda.is_available():
+        gpu = False
+        print('\nError: Cuda not available but --gpu was set.')
+        print('Running CPU...\n')
     else:
         gpu = False
+        print('\nRunning CPU...\n')
         
     # Create a dataset on input argument on command line.
     data_dir = str(sys.argv[1])
